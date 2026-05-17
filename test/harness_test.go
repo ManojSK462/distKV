@@ -62,7 +62,7 @@ func newCluster(t *testing.T, size int) *testCluster {
 func (tc *testCluster) startNode(id int, listener net.Listener) {
 	tc.t.Helper()
 
-	distkv, err := store.NewDistkv(id, tc.cluster, tc.dirs[id])
+	distkv, err := store.NewDistkv(id, tc.cluster, tc.dirs[id], "")
 	if err != nil {
 		tc.t.Fatalf("creating node %d: %v", id, err)
 	}

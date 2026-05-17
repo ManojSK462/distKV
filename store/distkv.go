@@ -148,24 +148,55 @@ func (s *kv) reapExpired() {
 // Raft node and the state machine, routes writes through consensus, and serves
 // reads locally.
 type Distkv struct {
-	node *raft.Node
-	kv   *kv
-	ttl  *ttlReaper
+	node   *raft.Node
+	kv     *kv
+	ttl    *ttlReaper
+	stream *streamPublisher // nil when StreamQ publishing is disabled
 }
 
 // NewDistkv assembles a node: the key-value state machine, the Raft node that
-// replicates it, and the TTL reaper.
-func NewDistkv(id int, cluster map[int]string, dataDir string) (*Distkv, error) {
+// replicates it, and the TTL reaper. When streamqAddr is non-empty, committed
+// writes are also published to a StreamQ broker at that address for real-time
+// event propagation; an empty address disables publishing entirely.
+func NewDistkv(id int, cluster map[int]string, dataDir, streamqAddr string) (*Distkv, error) {
 	state := newKV()
 	node, err := raft.NewNode(id, cluster, state, dataDir)
 	if err != nil {
 		return nil, err
 	}
-	return &Distkv{node: node, kv: state, ttl: newTTLReaper(state)}, nil
+	h := &Distkv{node: node, kv: state, ttl: newTTLReaper(state)}
+
+	if streamqAddr != "" {
+		// Entries already in the log at startup were replayed from the
+		// write-ahead log and belong to an earlier process lifetime; they
+		// were published then, if at all. Only entries appended above this
+		// index are writes newly committed in this lifetime.
+		restoredIndex := node.LastIndex()
+		h.stream = newStreamPublisher(streamqAddr)
+
+		// Publish each committed write once for the whole cluster: the
+		// observer runs on every replica in log order, but only the leader
+		// forwards the event, and replayed history is skipped.
+		node.SetApplyObserver(func(entry raft.LogEntry) {
+			if entry.Index <= restoredIndex || !node.IsLeader() {
+				return
+			}
+			h.stream.enqueue(streamEvent{
+				op:    entry.Command.Op,
+				key:   entry.Command.Key,
+				value: entry.Command.Value,
+				term:  uint64(entry.Term),
+			})
+		})
+	}
+	return h, nil
 }
 
 // Start brings the node online.
 func (h *Distkv) Start() {
+	if h.stream != nil {
+		h.stream.start()
+	}
 	h.node.Start()
 	h.ttl.start()
 }
@@ -174,6 +205,9 @@ func (h *Distkv) Start() {
 func (h *Distkv) Stop() {
 	h.ttl.stop()
 	h.node.Stop()
+	if h.stream != nil {
+		h.stream.stop()
+	}
 }
 
 // Node exposes the underlying Raft node, primarily for observability.

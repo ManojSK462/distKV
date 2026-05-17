@@ -153,6 +153,11 @@ type Node struct {
 	persister *persister
 	transport *transport
 
+	// applyObserver, if set, is invoked for every committed entry as it is
+	// applied, in log order. It is registered before Start and never changes
+	// afterward, so the applier reads it without holding the lock.
+	applyObserver func(LogEntry)
+
 	// pending maps a log index to the proposer waiting for it to commit.
 	pending map[int]*pendingProposal
 
@@ -202,6 +207,15 @@ func NewNode(id int, cluster map[int]string, sm StateMachine, dataDir string) (*
 		}
 	}
 	return n, nil
+}
+
+// SetApplyObserver registers a function notified of every committed entry as
+// the applier hands it to the state machine, in log order. It is a read-only
+// tap on the commit stream: the raft package does not interpret what the
+// observer does with the entry. It must be called before Start, and the
+// observer must not block, since it runs on the single applier goroutine.
+func (n *Node) SetApplyObserver(fn func(LogEntry)) {
+	n.applyObserver = fn
 }
 
 // Start launches the node's background goroutines: the election timer and the
@@ -262,6 +276,14 @@ func (n *Node) Term() int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.currentTerm
+}
+
+// LastIndex returns the index of the last log entry. Called immediately after
+// NewNode, it reports the highest index restored from the write-ahead log.
+func (n *Node) LastIndex() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.lastLogIndexLocked()
 }
 
 // LeaderAddr returns the address of the best-known leader, or "" if unknown.
@@ -333,6 +355,9 @@ func (n *Node) applier() {
 			var value string
 			if entry.Command.Op != OpNoop {
 				value = n.sm.Apply(entry.Command)
+				if n.applyObserver != nil {
+					n.applyObserver(entry)
+				}
 			}
 			n.mu.Lock()
 

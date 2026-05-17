@@ -9,14 +9,12 @@ import (
 	"distkv/store"
 )
 
-
 const (
-	maxRedirects   = 16              
-	requestTimeout = 5 * time.Second 
+	maxRedirects   = 16
+	requestTimeout = 5 * time.Second
 	retryDelay     = 100 * time.Millisecond
 	watchInterval  = time.Second
 )
-
 
 type Client struct {
 	mu        sync.Mutex

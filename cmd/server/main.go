@@ -19,6 +19,7 @@ func main() {
 	id := flag.Int("id", 0, "unique numeric id of this node")
 	peers := flag.String("peers", "", "cluster as comma-separated id@host:port entries, including this node")
 	dataDir := flag.String("data-dir", "data", "directory for this node's persistent state")
+	streamq := flag.String("streamq", "", "StreamQ broker address (host:port) to publish committed writes to; empty disables it")
 	flag.Parse()
 
 	if *id <= 0 || *peers == "" {
@@ -35,7 +36,7 @@ func main() {
 		log.Fatalf("distkv: node id %d does not appear in --peers", *id)
 	}
 
-	distkv, err := store.NewDistkv(*id, cluster, *dataDir)
+	distkv, err := store.NewDistkv(*id, cluster, *dataDir, *streamq)
 	if err != nil {
 		log.Fatalf("distkv: %v", err)
 	}
@@ -53,6 +54,9 @@ func main() {
 
 	distkv.Start()
 	log.Printf("distkv: node %d serving on %s (cluster of %d)", *id, addr, len(cluster))
+	if *streamq != "" {
+		log.Printf("distkv: node %d publishing committed writes to StreamQ at %s", *id, *streamq)
+	}
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -67,12 +71,11 @@ func serve(listener net.Listener, server *rpc.Server) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			return 
+			return
 		}
 		go server.ServeConn(conn)
 	}
 }
-
 
 func parseCluster(spec string) (map[int]string, error) {
 	cluster := make(map[int]string)

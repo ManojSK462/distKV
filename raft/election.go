@@ -44,7 +44,7 @@ func (n *Node) startElection() {
 
 	var (
 		votesMu sync.Mutex
-		votes   = 1 
+		votes   = 1
 	)
 
 	for _, peerID := range n.peerIDs() {
@@ -67,7 +67,7 @@ func (n *Node) startElection() {
 				n.stepDownLocked(reply.Term)
 				return
 			}
-			
+
 			if n.state != Candidate || n.currentTerm != term {
 				return
 			}
@@ -87,7 +87,6 @@ func (n *Node) startElection() {
 	}
 }
 
-
 func (n *Node) becomeLeaderLocked() {
 	if n.state != Candidate {
 		return
@@ -105,7 +104,6 @@ func (n *Node) becomeLeaderLocked() {
 	go n.heartbeatLoop(n.currentTerm)
 	n.broadcastAppendEntriesLocked()
 }
-
 
 func (n *Node) heartbeatLoop(term int) {
 	ticker := time.NewTicker(heartbeatInterval)
@@ -153,7 +151,6 @@ func (n *Node) handleRequestVote(args *RequestVoteArgs, reply *RequestVoteReply)
 	n.resetElectionDeadlineLocked()
 	reply.VoteGranted = true
 }
-
 
 func (n *Node) candidateUpToDateLocked(candidateIndex, candidateTerm int) bool {
 	localIndex := n.lastLogIndexLocked()
