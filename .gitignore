@@ -1,0 +1,10 @@
+# Build artifacts
+/distkv-server
+/distkv-client
+*.exe
+
+# Runtime state written by nodes
+/data/
+
+# Editor / tooling
+/.claude/
